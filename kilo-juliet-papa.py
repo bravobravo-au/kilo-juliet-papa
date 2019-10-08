@@ -87,15 +87,16 @@ if args.config:
     config.read(args.config)
 else:
     config.read('config.ini')
-    mqtt_host                           = config['DEFAULT']['MQTT_HOST']
-    mqtt_port                           = config['DEFAULT']['MQTT_PORT']
-    mqtt_client_name                    = config['DEFAULT']['MQTT_CLIENT_NAME']
-    if 'MQTT_USERNAME' in config['DEFAULT']:
-        mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
-        mqtt_password                   = config['DEFAULT']['MQTT_PASSWORD']
-    else:
-        mqtt_username                   = None
-        mqtt_password                   = None
+
+mqtt_host                           = config['DEFAULT']['MQTT_HOST']
+mqtt_port                           = config['DEFAULT']['MQTT_PORT']
+mqtt_client_name                    = config['DEFAULT']['MQTT_CLIENT_NAME']
+if 'MQTT_USERNAME' in config['DEFAULT']:
+    mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
+    mqtt_password                   = config['DEFAULT']['MQTT_PASSWORD']
+else:
+    mqtt_username                   = None
+    mqtt_password                   = None
 
 
 client = mqtt.Client(
