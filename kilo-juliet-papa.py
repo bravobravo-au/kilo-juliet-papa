@@ -111,8 +111,10 @@ else:
     config.read('config.ini')
 
 mqtt_host                           = config['DEFAULT']['MQTT_HOST']
-mqtt_port                           = config['DEFAULT']['MQTT_PORT']
+mqtt_port                           = int(config['DEFAULT']['MQTT_PORT'])
 mqtt_client_name                    = config['DEFAULT']['MQTT_CLIENT_NAME']
+mqtt_loop_delay                     = float(config['DEFAULT']['MQTT_LOOP_DELAY'])
+
 if 'MQTT_USERNAME' in config['DEFAULT']:
     mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
     mqtt_password                   = config['DEFAULT']['MQTT_PASSWORD']
@@ -132,7 +134,7 @@ if mqtt_username is not None:
 
 client.connect(
                         mqtt_host, 
-                        port=int(mqtt_port), 
+                        port=mqtt_port, 
                         keepalive=10, 
                         bind_address=""
                         )
@@ -140,28 +142,71 @@ client.on_message=mqtt_message
 
 
 """
-Loop through each addition config section and create an input or output
+Loop through each addition config file section and create an input or output
 """
 for section in config.sections():
-    gpioConfigs.append( {
-                            'MQTT_TOPIC':       config[section]['MQTT_TOPIC'],
-                            'GPIO_PIN':         config[section]['GPIO_PIN'],
-                            'GPIO_TYPE':        config[section]['GPIO_TYPE'],
-                            'MQTT_PARSER':      config[section]['MQTT_PARSER'],
-                            'MQTT_PARSER_ARG1': config[section]['MQTT_PARSER_ARG1'],
-                            } )
-    if config[section]['GPIO_TYPE'] == 'OUTPUT':
+    mqtt_topic                  = config[section]['MQTT_TOPIC']
+    gpio_pin                    = int(config[section]['GPIO_PIN'])
+    gpio_type                   = config[section]['GPIO_TYPE']
+    mqtt_parser                 = None
+    mqtt_parser_arg1            = None
+    mqtt_message                = None
+    gpio_pin_state              = None
+
+    if gpio_type == 'OUTPUT':
+        mqtt_parser             = config[section]['MQTT_PARSER']
+        mqtt_parser_arg1        = config[section]['MQTT_PARSER_ARG1']
         GPIO.setup( 
-                    int(config[section]['GPIO_PIN']), 
-                    GPIO.OUT
+                    gpio_pin, 
+                    GPIO.OUT,
                     )
-    client.subscribe( 
-                        config[section]['MQTT_TOPIC'],
+        client.subscribe( 
+                        mqtt_topic,
                         )
+    
+    if gpio_type == 'INPUT':
+        mqtt_message            = config[section]['MQTT_MESSAGE']
+        GPIO.setup(
+                    gpio_pin,
+                    GPIO.IN,
+                    )
+        gpio_val = GPIO.input(gpio_pin)
+        client.publish(
+                            topic=mqtt_topic, 
+                            payload=mqtt_message.replace('{VALUE}',str(gpio_val) ),
+                            qos=0,
+                            retain=True,
+                            )
+        gpio_pin_state  = gpio_val
 
-client.loop_forever(
-                        timeout=1.0, 
-                        max_packets=1, 
-                        retry_first_connection=False
+    gpioConfigs.append( {
+                            'MQTT_TOPIC':       mqtt_topic,
+                            'GPIO_PIN':         gpio_pin,
+                            'GPIO_TYPE':        gpio_type,
+                            'MQTT_PARSER':      mqtt_parser,
+                            'MQTT_PARSER_ARG1': mqtt_parser_arg1,
+                            'MQTT_MESSAGE':     mqtt_message,
+                            'GPIO_PIN_STAT':    gpio_pin_state,
+                            } )
+
+
+"""
+The main loop of the program
+
+Enter the loop of the MQTT
+Check any GPIO inputs for state changes
+"""
+while True:
+    client.loop( mqtt_loop_delay )
+
+    for gpio in gpioConfigs:
+        if gpio['GPIO_TYPE'] == 'INPUT':
+            gpio_current_val = GPIO.input( gpio['GPIO_PIN'] )
+            if gpio_current_val != gpio['GPIO_PIN_STAT']:
+                gpio['GPIO_PIN_STAT'] = gpio_current_val
+                client.publish(
+                                topic=gpio['MQTT_TOPIC'],
+                                payload=gpio['MQTT_MESSAGE'].replace( '{VALUE}', str(gpio_current_val) ),
+                                qos=0,
+                                retain=True,
                         )
-
