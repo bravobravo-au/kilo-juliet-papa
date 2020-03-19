@@ -108,4 +108,5 @@ venv.bak/
 bin/*
 lib/*
 include/*
+FrontDoorLog.log
 #
