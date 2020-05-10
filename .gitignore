@@ -109,4 +109,6 @@ bin/*
 lib/*
 include/*
 FrontDoorLog.log
+kjp-activity.log
+pi-shutdown.sh
 #

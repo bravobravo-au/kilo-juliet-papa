@@ -30,12 +30,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 import paho.mqtt.client as mqtt
-from time import strftime, gmtime, sleep
+import time 
 import configparser
 import argparse
 import RPi.GPIO as GPIO
 import json
 import logging
+import subprocess
+from datetime import datetime
 
 """
 Parser of MQTT messages in JSON taking an Integer and returning a BOOL
@@ -80,6 +82,18 @@ def PARSER_STRONOFF(message, config):
 def mqtt_message(client, userdata, message):
     global GPIO
 
+    for commandConfig in commandConfigs:
+        if message.topic == commandConfig['MQTT_TOPIC']:
+            commandList = commandConfig['COMMAND'].split(" ")
+            execute = subprocess.run( commandList )
+            returnCode = execute.returncode
+            logger.info(commandConfig['LOG_MESSAGE'] % { 
+                                                            'command': commandConfig['COMMAND'], 
+                                                            'message': message.payload.decode("utf-8"), 
+                                                            'topic': message.topic, 'returncode': returnCode 
+                                                        })
+            return
+        
     for gpioConfig in gpioConfigs:
         if message.topic == gpioConfig['MQTT_TOPIC'] and gpioConfig['GPIO_TYPE'] == 'OUTPUT':
             functionName = "PARSER_" + gpioConfig['MQTT_PARSER']
@@ -88,7 +102,13 @@ def mqtt_message(client, userdata, message):
                             int(gpioConfig['GPIO_PIN']), 
                             value
                             )
-            logger.info(gpioConfig['LOG_MESSAGE'] % { 'pin': gpioConfig['GPIO_PIN'], 'value': value, 'message': message.payload.decode("utf-8"), 'topic': message.topic })
+            logger.info(gpioConfig['LOG_MESSAGE'] % { 
+                                                        'pin': gpioConfig['GPIO_PIN'], 
+                                                        'value': value, 
+                                                        'message': message.payload.decode("utf-8"), 
+                                                        'topic': message.topic 
+                                                        })
+            return
 
         if message.topic == gpioConfig['TOGGLE_MQTT_TOPIC'] and gpioConfig['GPIO_TYPE'] == 'OUTPUT':
             value = not GPIO.input( gpioConfig['GPIO_PIN'] )
@@ -103,13 +123,19 @@ def mqtt_message(client, userdata, message):
                             retain=gpioConfig['MQTT_RETAIN'],
                             )
 
-            logger.info(gpioConfig['LOG_MESSAGE'] % { 'pin': gpioConfig['GPIO_PIN'], 'value': value, 'message': message.payload.decode("utf-8"), 'topic': message.topic })
-
+            logger.info(gpioConfig['LOG_MESSAGE'] % { 
+                                                        'pin': gpioConfig['GPIO_PIN'], 
+                                                        'value': value, 
+                                                        'message': message.payload.decode("utf-8"), 
+                                                        'topic': message.topic 
+                                                        })
+            return
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 GPIO.cleanup()
 
 gpioConfigs = []
+commandConfigs = []
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", help="Configuration file to use default config.ini")
@@ -126,6 +152,8 @@ mqtt_host                           = config['DEFAULT']['MQTT_HOST']
 mqtt_port                           = int(config['DEFAULT']['MQTT_PORT'])
 mqtt_client_name                    = config['DEFAULT']['MQTT_CLIENT_NAME']
 mqtt_loop_delay                     = float(config['DEFAULT']['MQTT_LOOP_DELAY'])
+mqtt_qos                            = int(config['DEFAULT']['MQTT_QOS'])
+mqtt_retain                         = int(config['DEFAULT']['MQTT_RETAIN'])
 
 if 'MQTT_USERNAME' in config['DEFAULT']:
     mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
@@ -138,6 +166,13 @@ if 'LOGFILE_NAME' in config['DEFAULT']:
     logfile_name                    = config['DEFAULT']['LOGFILE_NAME']
 else:
     logfile_name                    = None
+
+if 'STARTUP_MQTT_MESSAGE' in config['DEFAULT']:
+    mqtt_startup_message            = config['DEFAULT']['STARTUP_MQTT_MESSAGE']
+    mqtt_startup_topic              = config['DEFAULT']['STARTUP_MQTT_TOPIC']
+else:
+    mqtt_startup_message                = None
+    mqtt_startup_topic                  = None
 
 if args.debug:
     logging.basicConfig(filename=logfile_name, format='%(asctime)s %(levelname)s: %(message)s', level=logging.DEBUG)
@@ -159,59 +194,85 @@ client.connect(         mqtt_host,
                         )
 client.on_message=mqtt_message
 
-
+if mqtt_startup_message and mqtt_startup_topic:
+    client.publish(
+                                topic=mqtt_startup_topic,
+                                payload=mqtt_startup_message % ( {'datetimenow': datetime.now().strftime("%Y-%m-%d %H:%M:%S") } ),
+                                qos=mqtt_qos,
+                                retain=mqtt_retain,
+                        )
 """
-Loop through each addition config file section and create an input or output
+Loop through each addition config file section and create an input or output or command action
 """
 for section in config.sections():
-    mqtt_topic                  = config[section]['MQTT_TOPIC']
-    gpio_pin                    = int(config[section]['GPIO_PIN'])
-    gpio_type                   = config[section]['GPIO_TYPE']
-    mqtt_parser                 = None
-    mqtt_parser_arg1            = None
-    mqtt_message                = None
-    gpio_pin_state              = None
-    mqtt_message_processor      = None
-    mqtt_retain                 = bool(config[section]['MQTT_RETAIN'])
-    mqtt_qos                    = int(config[section]['MQTT_QOS'])
-    log_message                 = config[section]['LOG_MESSAGE']
+    sectiontype                     = config[section]['TYPE']
 
-    if gpio_type == 'OUTPUT':
-        mqtt_parser             = config[section]['MQTT_PARSER']
-        mqtt_parser_arg1        = config[section]['MQTT_PARSER_ARG1']
-        toggle_mqtt_topic       = config[section]['TOGGLE_MQTT_TOPIC']
-        toggle_mqtt_message     = config[section]['TOGGLE_MQTT_MESSAGE']
+    if sectiontype == 'COMMAND':
+        mqtt_topic                  = config[section]['MQTT_TOPIC']
+        log_message                 = config[section]['LOG_MESSAGE']
+        command                     = config[section]['COMMAND']
+        logger.debug('Added command processor for command:%(command)s on MQTT topic:%(topic)s' % ( {
+                                                                            'command': command,
+                                                                            'topic': mqtt_topic,
+                                                                            }
+                                                                            )
+                                                                        )
+        commandConfigs.append( {
+                'COMMAND'       : command,
+                'MQTT_TOPIC'    : mqtt_topic,
+                'LOG_MESSAGE'   : log_message,
+            } )
+        client.subscribe( mqtt_topic )
 
-        GPIO.setup( 
+    if sectiontype == 'GPIO':
+        mqtt_topic                  = config[section]['MQTT_TOPIC']
+        gpio_pin                    = int(config[section]['GPIO_PIN'])
+        gpio_type                   = config[section]['GPIO_TYPE']
+        mqtt_parser                 = None
+        mqtt_parser_arg1            = None
+        mqtt_message                = None
+        gpio_pin_state              = None
+        mqtt_message_processor      = None
+        mqtt_retain                 = bool(config[section]['MQTT_RETAIN'])
+        mqtt_qos                    = int(config[section]['MQTT_QOS'])
+        log_message                 = config[section]['LOG_MESSAGE']
+
+        if gpio_type == 'OUTPUT':
+            mqtt_parser             = config[section]['MQTT_PARSER']
+            mqtt_parser_arg1        = config[section]['MQTT_PARSER_ARG1']
+            toggle_mqtt_topic       = config[section]['TOGGLE_MQTT_TOPIC']
+            toggle_mqtt_message     = config[section]['TOGGLE_MQTT_MESSAGE']
+
+            GPIO.setup( 
                     gpio_pin, 
                     GPIO.OUT,
                     )
-        client.subscribe( 
+            client.subscribe( 
                         mqtt_topic,
                         )
-        if toggle_mqtt_topic != "":
-            client.subscribe(
+            if toggle_mqtt_topic != "":
+                client.subscribe(
                         toggle_mqtt_topic,
                     )
     
-    if gpio_type == 'INPUT':
-        mqtt_message            = config[section]['MQTT_MESSAGE']
-        mqtt_message_prcoessor  = config[section]['MQTT_MESSAGE_PROCESSOR']
+        if gpio_type == 'INPUT':
+            mqtt_message            = config[section]['MQTT_MESSAGE']
+            mqtt_message_prcoessor  = config[section]['MQTT_MESSAGE_PROCESSOR']
 
-        GPIO.setup(
+            GPIO.setup(
                     gpio_pin,
                     GPIO.IN,
                     )
-        gpio_val = GPIO.input(gpio_pin)
-        client.publish(
+            gpio_val = GPIO.input(gpio_pin)
+            client.publish(
                             topic=mqtt_topic, 
                             payload=mqtt_message.replace('{VALUE}',str(gpio_val) ),
                             qos=mqtt_qos,
                             retain=mqtt_retain,
                             )
-        gpio_pin_state  = gpio_val
+            gpio_pin_state  = gpio_val
 
-    gpioConfigs.append( {
+        gpioConfigs.append( {
                             'MQTT_TOPIC':           mqtt_topic,
                             'TOGGLE_MQTT_TOPIC':    toggle_mqtt_topic,
                             'TOGGLE_MQTT_MESSAGE':  toggle_mqtt_message,
@@ -225,7 +286,7 @@ for section in config.sections():
                             'MQTT_QOS':             mqtt_qos,
                             'MQTT_RETAIN':          mqtt_retain,
                             } )
-    logger.debug( 'Added configuration for %s' % (gpioConfigs[-1]) )
+        logger.debug( 'Added configuration for %s' % (gpioConfigs[-1]) )
 
 
 """

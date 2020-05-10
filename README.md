@@ -5,6 +5,15 @@ This python project can control Raspberry Pi GPIO Output pins as a result of rec
 
 At the moment the idea is to keep this fairly simple but you never know it might evolve from there as people provide feedback and feature requests.
 
+This project is also able to run any shell command based upon a MQTT message. This is useful for gluing MQTT into unix systems.
+
+#Examples of use
+1. Driving hardware outputs such as relays. The other users this to drive a door solenoid and magnetic door holder and have his home automation system publish MQTT messages to control the door. 
+2. Pushing hardware inputs into MQTT. The author uses this to determine if a door solenoid latch in in the open or closed position.
+3. Running commands when a MQTT message is received. The author uses this to have a Raspberry pi shutdown when a MQTT message is receieved. This is useful for a plex setup that is not always on.
+
+If you have more please feel free to share.
+
 #Installation
 
 1. Install the requirements
@@ -18,6 +27,15 @@ pip install -r requirements.txt
 python kilo-juliet-papa.py
 
 
+command line options
+--config 
+
+This specifies a differently named configuration file.
+
+--debug=1
+Turn on more verbose debugging
+
+
 All configuration is supplied by the config.ini file. This means that you should not need to make changes to code to perform basic tasks.
 
 #Sample output configuration
@@ -25,6 +43,7 @@ All configuration is supplied by the config.ini file. This means that you should
 Relay on BCM GPIO 17 with Message of ON or OFF
 
 ```[RELAY1]
+TYPE=GPIO
 GPIO_TYPE=OUTPUT
 GPIO_PIN=17
 MQTT_TOPIC=STAT/relay1
@@ -47,6 +66,7 @@ LOG_MESSAGE is the string that is posted to the LOG file when this output is tri
 #Sample input configuration
 
 ```[INPUT1]
+TYPE=GPIO
 GPIO_TYPE=INPUT
 GPIO_PIN=2
 MQTT_TOPIC=STAT/input1
@@ -56,6 +76,20 @@ MQTT_RETAIN=True
 LOG_MESSAGE=Published MQTT Message: %(message)s to topic: %(topic)s
 ```
 MQTT_MESSAGE is the message that is posted to MQTT. {VALUE} is the logic value of the input.
+
+#Sample command configuration
+
+'''[SHUTDOWN]
+TYPE=COMMAND
+COMMAND=sudo /sbin/shutdown -h now
+MQTT_TOPIC=STAT/plex-server/shutdown-now
+LOG_MESSAGE=Ran command:%(command)s and got return code:%(returncode)s based upon message:%(message)s on topic:%(topic)s
+'''
+
+COMMAND is the command to execute when anything is published to this MQTT topic. 
+LOG_MESSAGE is written when the message is processed.
+
+Note: To call shutdown, some changes were made sudoers to allow a non root user to run shutdown via sudo. This is a safer way than running this script as root. At the moment nothing is done with the returned data form the process. Maybe later this could be pushed back to MQTT.
 
 #Why the name?
 
