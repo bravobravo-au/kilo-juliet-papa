@@ -1,7 +1,7 @@
 # kilo-juliet-papa
-Control Raspberry Pi Outputs via MQTT
+Control Raspberry Pi via MQTT
 
-This python project can control Raspberry Pi GPIO Output pins as a result of receiving MQTT messages and also take GPIO inputs and deliver their status via MQTT. So a MQTT to GPIO bridge. Configuration is supplied via INI file and this allows one MQTT topic to be assigned to one GPIO. There is also the ability to configure how the software should decode the MQTT message to control the GPIO output.
+This python project can control Raspberry Pi GPIO Output pins as a result of receiving MQTT messages and also take GPIO inputs and deliver their status via MQTT. So a MQTT to GPIO bridge. Configuration is supplied via INI file and this allows one MQTT topic to be assigned to one GPIO. There is also the ability to configure how the software should decode the MQTT message to control the GPIO output. Recently support has been added to allow system commands to be executed when certain MQTT messages are received.
 
 At the moment the idea is to keep this fairly simple but you never know it might evolve from there as people provide feedback and feature requests.
 
@@ -79,12 +79,12 @@ MQTT_MESSAGE is the message that is posted to MQTT. {VALUE} is the logic value o
 
 #Sample command configuration
 
-'''[SHUTDOWN]
+```[SHUTDOWN]
 TYPE=COMMAND
 COMMAND=sudo /sbin/shutdown -h now
 MQTT_TOPIC=STAT/plex-server/shutdown-now
 LOG_MESSAGE=Ran command:%(command)s and got return code:%(returncode)s based upon message:%(message)s on topic:%(topic)s
-'''
+```
 
 COMMAND is the command to execute when anything is published to this MQTT topic. 
 LOG_MESSAGE is written when the message is processed.
