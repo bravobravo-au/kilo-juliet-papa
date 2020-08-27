@@ -108,6 +108,7 @@ venv.bak/
 bin/*
 lib/*
 include/*
+share/*
 FrontDoorLog.log
 kjp-activity.log
 pi-shutdown.sh

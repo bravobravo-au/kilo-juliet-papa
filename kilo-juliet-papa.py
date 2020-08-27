@@ -154,6 +154,20 @@ mqtt_client_name                    = config['DEFAULT']['MQTT_CLIENT_NAME']
 mqtt_loop_delay                     = float(config['DEFAULT']['MQTT_LOOP_DELAY'])
 mqtt_qos                            = int(config['DEFAULT']['MQTT_QOS'])
 mqtt_retain                         = int(config['DEFAULT']['MQTT_RETAIN'])
+mqtt_connected                      = False
+
+
+def on_connect(client, userdata, flags, rc):
+    global mqtt_connected
+    if rc == 0:
+        mqtt_connected = True 
+    else:
+        mqtt_connected = False
+
+def on_disconnect(client, userdata, rc):
+    global mqtt_connected
+    mqtt_connected = False
+
 
 if 'MQTT_USERNAME' in config['DEFAULT']:
     mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
@@ -188,11 +202,19 @@ client = mqtt.Client(   client_id=mqtt_client_name,
 if mqtt_username is not None:
     client.username_pw_set(username=mqtt_username, password=mqtt_password)
 
-client.connect(         mqtt_host, 
+def mqtt_connect():
+    try:
+        client.connect(         
+                        mqtt_host, 
                         port=mqtt_port, 
                         keepalive=10, 
                         )
+    except:
+        pass
+
 client.on_message=mqtt_message
+client.on_connect=on_connect
+client.on_disconnect=on_disconnect
 
 if mqtt_startup_message and mqtt_startup_topic:
     client.publish(
@@ -296,6 +318,9 @@ Enter the loop of the MQTT
 Check any GPIO inputs for state changes
 """
 while True:
+    if mqtt_connected == False:
+        mqtt_connect()
+
     client.loop( mqtt_loop_delay )
 
     for gpio in gpioConfigs:
