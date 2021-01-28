@@ -81,7 +81,6 @@ def PARSER_STRONOFF(message, config):
 
 def mqtt_message(client, userdata, message):
     global GPIO
-
     for commandConfig in commandConfigs:
         if message.topic == commandConfig['MQTT_TOPIC']:
             commandList = commandConfig['COMMAND'].split(" ")
@@ -160,14 +159,30 @@ mqtt_connected                      = False
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected
     if rc == 0:
-        mqtt_connected = True 
+        mqtt_connected = True
+
+        if mqtt_startup_message and mqtt_startup_topic:
+            client.publish(
+                                topic=mqtt_startup_topic,
+                                payload=mqtt_startup_message % ( {'datetimenow': datetime.now().strftime("%Y-%m-%d %H:%M:%S") } ),
+                                qos=mqtt_qos,
+                                retain=mqtt_retain,
+                        )
+
+        for cmnd in commandConfigs:
+            client.subscribe( cmnd['MQTT_TOPIC'] )
+        for pin in gpioConfigs:
+            client.subscribe( pin['MQTT_TOPIC'] )
+            if pin['TOGGLE_MQTT_TOPIC'] != "":
+                client.subscribe( pin['TOGGLE_MQTT_TOPIC'] )
+
+
     else:
         mqtt_connected = False
 
 def on_disconnect(client, userdata, rc):
     global mqtt_connected
     mqtt_connected = False
-
 
 if 'MQTT_USERNAME' in config['DEFAULT']:
     mqtt_username                   = config['DEFAULT']['MQTT_USERNAME'] 
@@ -194,35 +209,29 @@ else:
     logging.basicConfig(filename=logfile_name, format='%(asctime)s %(levelname)s: %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-client = mqtt.Client(   client_id=mqtt_client_name, 
-                        clean_session=False, 
+#mqtt_client_name
+client = mqtt.Client(   client_id='', 
+                        clean_session=True, 
                         userdata=None, 
                         transport='tcp',
                         )
 if mqtt_username is not None:
     client.username_pw_set(username=mqtt_username, password=mqtt_password)
 
-def mqtt_connect():
-    try:
-        client.connect(         
-                        mqtt_host, 
-                        port=mqtt_port, 
-                        keepalive=10, 
-                        )
-    except:
-        pass
-
 client.on_message=mqtt_message
 client.on_connect=on_connect
 client.on_disconnect=on_disconnect
 
-if mqtt_startup_message and mqtt_startup_topic:
-    client.publish(
-                                topic=mqtt_startup_topic,
-                                payload=mqtt_startup_message % ( {'datetimenow': datetime.now().strftime("%Y-%m-%d %H:%M:%S") } ),
-                                qos=mqtt_qos,
-                                retain=mqtt_retain,
-                        )
+
+def mqtt_connect():
+    if mqtt_connected == False:
+        global client
+        client.connect(         
+                        mqtt_host, 
+                        port=mqtt_port, 
+                        keepalive=60, 
+                    )
+        client.loop(5)
 """
 Loop through each addition config file section and create an input or output or command action
 """
@@ -317,6 +326,9 @@ The main loop of the program
 Enter the loop of the MQTT
 Check any GPIO inputs for state changes
 """
+
+mqtt_connect()
+
 while True:
     if mqtt_connected == False:
         mqtt_connect()
